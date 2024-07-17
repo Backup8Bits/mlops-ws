@@ -19,7 +19,7 @@ jobs:
         run: |
           docker run \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $(pwd):/app \
+            -v $(pwd):/project \
             horuszup/horusec-cli:v2.7 \
             horusec start -p="./project" -e="false" -o="json" -O="./project/horusec-issues.json" -P $(pwd)
 
