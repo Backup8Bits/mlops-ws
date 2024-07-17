@@ -21,7 +21,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v $(pwd):/app \
             horuszup/horusec-cli:v2.7 \
-            horusec start -p="./app" -e="false" -o="json" -O="./app/horusec-issues.json" -i "**/docker-compose.yml/**" -P $(pwd)
+            horusec start -p="./project" -e="false" -o="json" -O="./project/horusec-issues.json" -P $(pwd)
 
       - name: Clear File
         run: |
