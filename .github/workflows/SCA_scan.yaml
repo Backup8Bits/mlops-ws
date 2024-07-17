@@ -8,7 +8,7 @@ defaults:
     shell: bash
 
 jobs:
-  dast_scan:
+  sca_scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,6 +24,7 @@ jobs:
               echo "File exists"
               if grep -q "No issues found" osv.table; then
                 # output without issues
+                echo "Do not exist issues"
                 echo "issues=false" >> $GITHUB_OUTPUT
               else
                 echo "issues=true" >> $GITHUB_OUTPUT
