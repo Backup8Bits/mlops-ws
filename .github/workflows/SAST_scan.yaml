@@ -26,7 +26,7 @@ jobs:
       - name: Clear File
         run: |
           cat ./horusec-issues.json
-          if not jq -e '. != null' ./horusec-issues.json >/dev/null 2>&1; then
+          if jq -e '. != null' ./horusec-issues.json >/dev/null 2>&1; then
             jq '[.analysisVulnerabilities[].vulnerabilities | {confidence: .confidence, file: .file, code: .code, details: .details, securityTool: .securityTool, language: .language, severity: .severity, type: .type}]' ./horusec-issues.json > ./horusec-issues-clear.json
             sed -i 's/\\n/ - /g' ./horusec-issues-clear.json
             sed -i 's/\\r/ /g' ./horusec-issues-clear.json
