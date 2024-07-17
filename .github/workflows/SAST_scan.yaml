@@ -8,8 +8,98 @@ defaults:
     shell: bash
 
 jobs:
-  dast_scan:
+  sast_scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Running Horusec Security
+        continue-on-error: true
+        run: |
+          docker run \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/app \
+            horuszup/horusec-cli:v2.7 \
+            horusec start -p="./app" -e="false" -o="json" -O="./app/horusec-issues.json" -i "**/docker-compose.yml/**" -P $(pwd)
+
+      - name: Clear File
+        run: |
+          cat ./horusec-issues.json
+          if not jq -e '. != null' ./horusec-issues.json >/dev/null 2>&1; then
+            jq '[.analysisVulnerabilities[].vulnerabilities | {confidence: .confidence, file: .file, code: .code, details: .details, securityTool: .securityTool, language: .language, severity: .severity, type: .type}]' ./horusec-issues.json > ./horusec-issues-clear.json
+            sed -i 's/\\n/ - /g' ./horusec-issues-clear.json
+            sed -i 's/\\r/ /g' ./horusec-issues-clear.json
+            sed -i 's/\\\\n/ - /g' ./horusec-issues-clear.json
+          else
+            echo "File does not contain valid JSON data"
+          fi
+
+      - name: Convert JSON to MD
+        run: |
+          if not jq -e '. != null' ./horusec-issues.json >/dev/null 2>&1; then
+            json=$(cat ./horusec-issues-clear.json)
+            echo "# Static Application Security Testing (SAST)." > ./horusec-issues.md
+            echo "| Confidence | Severety | Type | File | Code | Details |" >> ./horusec-issues.md
+            echo "| ---------- | --------- | ----------- | ------------------------------------------ | ------------------------------------------ | ------------------------------------------ |" >> ./horusec-issues.md
+            echo "$json" | jq -r '.[] | "| \(.confidence) | \(.severity) | \(.type) | \(.file) | \(.code) | \(.details) |"' >> ./horusec-issues.md
+          else
+            echo "# Static Application Security Testing (SAST) 0 Vulnerabilities " > ./horusec-issues.md
+            echo "File does not contain valid JSON data"
+          fi
+
+      - name: Check existing issues.
+        id: check-issues
+        run: |
+          result=$(gh issue list --state open --label "SAST" --json "number" --jq ".[0].number")
+          if [[ -z "$result" ]]; then
+            echo "issue_existente=false" >> $GITHUB_OUTPUT
+          else
+            echo "issue_existente=true" >> $GITHUB_OUTPUT
+            echo "An issue already exists."
+            echo "issue_number=$result" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_SECURITY_TOKEN }}
+
+      - name: Overwrite or create issue
+        id: create-issue
+        run: |
+          issue_number=${{ steps.check-issues.outputs.issue_number }}
+          if [[ -z "$issue_number" ]]; then
+            echo "Creating a new issue..."
+            gh issue create --title "Issues found by Static Application Security Testing (SAST)." --body-file ./horusec-issues.md --label "security" --label "SAST"
+          else
+            echo "Overwriting the existing issue ($issue_number)..."
+            gh issue edit $issue_number --title "Issues found by Static Application Security Testing (SAST)." --body-file ./horusec-issues.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_SECURITY_TOKEN }}
+
+      - name: Archive report as artifact
+        uses: actions/upload-artifact@v3
+        if: failure() && steps.create-issue.outcome == 'failure'
+        with:
+          name: report-sast-artifact
+          path: ./horusec-issues.md
+
+      - name: Create Body error issue
+        if: failure() && steps.create-issue.outcome == 'failure'
+        run: |
+          echo "# FAILED TO CREATE ISSUE BY SIZE IN BODY" > body-file.md
+          echo "Please check issues in artifact of:" >> body-file.md
+          echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> body-file.md
+
+      - name: Overwrite or create issue
+        if: failure() && steps.create-issue.outcome == 'failure'
+        run: |
+          issue_number=${{ steps.check-issues.outputs.issue_number }}
+          if [[ -z "$issue_number" ]]; then
+            echo "Creating a new issue..."
+            gh issue create --title "Issues found by Static Application Security Testing (SAST)." --body-file ./body-file.md --label "security" --label "SAST"
+          else
+            echo "Overwriting the existing issue ($issue_number)..."
+            gh issue edit $issue_number --title "Issues found by Static Application Security Testing (SAST)." --body-file ./body-file.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_SECURITY_TOKEN }}
