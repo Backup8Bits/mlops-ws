@@ -38,7 +38,7 @@ jobs:
 
       - name: Convert JSON to MD
         run: |
-          if not jq -e '. != null' ./horusec-issues.json >/dev/null 2>&1; then
+          if jq -e '. != null' ./horusec-issues.json >/dev/null 2>&1; then
             json=$(cat ./horusec-issues-clear.json)
             echo "# Static Application Security Testing (SAST)." > ./horusec-issues.md
             echo "| Confidence | Severety | Type | File | Code | Details |" >> ./horusec-issues.md
