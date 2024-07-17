@@ -33,6 +33,7 @@ jobs:
             sed -i 's/\\\\n/ - /g' ./horusec-issues-clear.json
           else
             echo "File does not contain valid JSON data"
+            echo "$?"
           fi
 
       - name: Convert JSON to MD
