@@ -1,0 +1,94 @@
+name: "SCA Scan and Report"
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dast_scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan code
+        id: scan-code
+        run: |
+          if ! docker run -v ${PWD}:/src ghcr.io/google/osv-scanner --lockfile=/src/Pipfile.lock --format markdown >> osv-report.md; then
+            echo "check if file is created and check if exists issues"
+
+            if [ -f "osv-report.md" ]; then
+              echo "File exists"
+              if grep -q "No issues found" osv.table; then
+                # output without issues
+                echo "issues=false" >> $GITHUB_OUTPUT
+              else
+                echo "issues=true" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "File does not exist"
+              exit 1
+            fi
+          fi
+          exit 0
+
+      - name: Check existing issues.
+        if: steps.scan-code.outputs.issues == 'true'
+        id: check-issues
+        run: |
+          result=$(gh issue list --state open --label "SCA" --json "number" --jq ".[0].number")
+          if [[ -z "$result" ]]; then
+            echo "issue_existente=false" >> $GITHUB_OUTPUT
+          else
+            echo "issue_existente=true" >> $GITHUB_OUTPUT
+            echo "An issue already exists."
+            echo "issue_number=$result" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_SECURITY_TOKEN }}
+
+      - name: Overwrite or create issue
+        if: steps.scan-code.outputs.issues == 'true'
+        id: create-issue
+        run: |
+          issue_number=${{ steps.check-issues.outputs.issue_number }}
+          if [[ -z "$issue_number" ]]; then
+            echo "Creating a new issue..."
+            gh issue create --title "Vulnerabilities found by Open Source Code Analysis (SCA)." --body-file ./osv-report.md --label "security" --label "SCA"
+          else
+            echo "Overwriting the existing issue ($issue_number)..."
+            gh issue edit $issue_number --title "Vulnerabilities found by Open Source Code Analysis (SCA)." --body-file ./osv-report.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_SECURITY_TOKEN }}
+
+      - name: Archive report as artifact
+        uses: actions/upload-artifact@v3
+        if: failure() && steps.create-issue.outcome == 'failure' && steps.scan-code.outputs.issues == 'true'
+        with:
+          name: report-sca-artifact
+          path: ./osv-report.md
+
+      - name: Create Body error issue
+        if: failure() && steps.create-issue.outcome == 'failure' && steps.scan-code.outputs.issues == 'true'
+        run: |
+          echo "# FAILED TO CREATE ISSUE BY SIZE IN BODY" > body-file.md
+          echo "Please check issues in artifact of:" >> body-file.md
+          echo "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> body-file.md
+
+      - name: Overwrite or create issue
+        if: failure() && steps.create-issue.outcome == 'failure' && steps.scan-code.outputs.issues == 'true'
+        run: |
+          issue_number=${{ steps.check-issues.outputs.issue_number }}
+          if [[ -z "$issue_number" ]]; then
+            echo "Creating a new issue..."
+            gh issue create --title "Vulnerabilities found by Open Source Code Analysis (SCA)." --body-file ./body-file.md --label "security" --label "SCA"
+          else
+            echo "Overwriting the existing issue ($issue_number)..."
+            gh issue edit $issue_number --title "Vulnerabilities found by Open Source Code Analysis (SCA)." --body-file ./body-file.md
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_SECURITY_TOKEN }}
